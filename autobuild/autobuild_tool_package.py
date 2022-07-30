@@ -240,6 +240,20 @@ def package(config, build_directory, platform_name, archive_filename=None, archi
     # add the metadata file name to the list of files _after_ putting that list in the metadata
     files.add(metadata_file_name)
 
+    # add a short pkg info as json
+    pkgInfo = {
+        "name": metadata_file.package_description.name,
+        "version": metadata_file.package_description.version,
+        "copyright": metadata_file.package_description.copyright
+    }
+
+    infoFile = os.path.abspath(os.path.join(build_directory, metadata_file.package_description.name + "_shortinfo.json"))
+    with open( infoFile, "wt") as fInfo:
+        import json
+        fInfo.write( json.dumps( pkgInfo, indent=1 ) )
+    files.add(infoFile)
+    #
+    
     config_directory = os.path.dirname(config.path)
     if not archive_filename:
         tardir = config_directory
