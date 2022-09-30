@@ -1,26 +1,3 @@
-#!/usr/bin/python
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-
 """
 Low-level autobuild functionality common to all modules.
 
@@ -30,26 +7,22 @@ other autobuild module.
 
 Importing this module will also guarantee that certain dependencies
 are available, such as llbase
-
-Author : Martin Reddy
-Date   : 2010-04-13
 """
+from __future__ import annotations
 
-import argparse
-from collections import OrderedDict
 import itertools
 import logging
 import os
 import platform
 import pprint
-import shutil
+import subprocess
 import sys
 import tempfile
-import time
+from collections import OrderedDict
 
-from .version import AUTOBUILD_VERSION_STRING
+from autobuild.version import AUTOBUILD_VERSION_STRING
 
-logger = logging.getLogger('autobuild.common')
+logger = logging.getLogger(__name__)
 
 
 class AutobuildError(RuntimeError):
@@ -185,7 +158,7 @@ def establish_platform(specified_platform=None, addrsize=DEFAULT_ADDRSIZE):
             Platform = PLATFORM_LINUX64
         else:
             Platform = PLATFORM_LINUX
-    elif is_system_windows():  
+    elif is_system_windows():
         if addrsize == 64:
             Platform = PLATFORM_WINDOWS64
         else:
@@ -201,7 +174,7 @@ def establish_platform(specified_platform=None, addrsize=DEFAULT_ADDRSIZE):
 
     logger.debug("Specified platform %s address-size %d: result %s" \
                  % (specified_platform, specified_addrsize, Platform))
-    
+
     return Platform
 
 def get_version_tuple(version_string):
@@ -242,7 +215,7 @@ def get_autobuild_environment():
 
 def get_install_cache_dir():
     """
-    In general, the package archives do not change much, so find a 
+    In general, the package archives do not change much, so find a
     host/user specific location to cache files.
     """
     cache = os.getenv('AUTOBUILD_INSTALLABLE_CACHE')
@@ -346,7 +319,7 @@ def dedup_path(path, sep=os.pathsep):
     Given a path string (directory names separated by os.pathsep), eliminate
     duplicates from that string while preserving the search order. Since we've
     observed cases in which both dir and dir/ appear in the same PATH string
-    (or dir and dir\, depending on platform), also remove any trailing slashes.
+    (or dir and dir/, depending on platform), also remove any trailing slashes.
 
     Optionally pass a separator, if you want anything other than os.pathsep.
     """
@@ -530,29 +503,27 @@ def select_configurations(args, config, verb):
     return configurations
 
 
-def establish_build_id(build_id_arg):
-    """determine and return a build_id based on (in preference order):
-       the --id argument, 
-       the AUTOBUILD_BUILD_ID environment variable,
-       the date/time
-    If we reach the date fallback, a warning is logged
-    In addition to returning the id value, this sets the AUTOBUILD_BUILD_ID environment
-    variable for any descendent processes so that recursive invocations will have access
-    to the same value.
-    """
-
-    if build_id_arg:
-        build_id = build_id_arg
-    elif 'AUTOBUILD_BUILD_ID' in os.environ:
-        build_id = os.environ['AUTOBUILD_BUILD_ID']
-    else:
-        # construct a timestamp that will fit into a signed 32 bit integer:
-        #   <two digit year><three digit day of year><two digit hour><two digit minute>
-        build_id = time.strftime("%y%j%H%M", time.gmtime())
-        logger.warn("Warning: no --id argument or AUTOBUILD_BUILD_ID environment variable specified;\n    using a value from the UTC date and time (%s), which may not be unique" % build_id)
-
-    logger.debug("Build id %s" % build_id)
-    os.environ['AUTOBUILD_BUILD_ID'] = str(build_id)
-    return str(build_id)
+def is_env_disabled(key: str) -> bool:
+    """Check whether an envvar has an explicit falsey value. Useful for opt-out behavior."""
+    return os.environ.get(key, "true").lower() in {"false", "0", "f", "no"}
 
 
+def is_env_enabled(key: str) -> bool:
+    """Check whether an envvar has an explicit truthy value. Useful for opt-in behavior."""
+    return os.environ.get(key, "false").lower() in {"true", "1", "t", "yes"}
+
+
+def cmd(*cmd, **kwargs) -> subprocess.CompletedProcess[str]:
+    """Shorthand subprocess.run"""
+    p = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, text=True, **kwargs)
+    p.stdout = p.stdout.rstrip("\n")
+    return p
+
+
+def has_cmd(name) -> bool:
+    """Check whether an executable exists by attempting to run its 'help' subcommand"""
+    try:
+        p = cmd(name, "help")
+    except OSError:
+        return False
+    return not p.returncode

@@ -1,48 +1,18 @@
-#!/usr/bin/python
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-
-"""
-API to access the autobuild configuration file.
-
-Author : Alain Linden
-"""
-
-import os
 import itertools
+import json
+import logging
+import os
 import pprint
 import re
 import string
 import sys
 from io import StringIO
-try:
-    from llbase import llsd
-except ImportError:
-    sys.exit("Failed to import llsd via the llbase module; to install, use:\n"
-             "  pip install llbase")
 
-from . import common
-from .executable import Executable
-import logging
+from llbase import llsd
+
+from autobuild import common
+from autobuild.executable import Executable
+from autobuild.scm.git import get_version as get_git_version
 
 logger = logging.getLogger('autobuild.configfile')
 
@@ -60,6 +30,10 @@ PACKAGE_METADATA_FILE = "autobuild-package.xml"
 
 
 class ConfigurationError(common.AutobuildError):
+    pass
+
+
+class NoVersionFileKeyError(common.AutobuildError):
     pass
 
 
@@ -241,7 +215,7 @@ class ConfigurationDescription(common.Serialized):
             with open(self.path, 'rb') as f:
                 autobuild_xml = f.read()
             if not autobuild_xml:
-                logger.warn("Configuration file '%s' is empty" % self.path)
+                logger.warning("Configuration file '%s' is empty" % self.path)
                 return
             try:
                 saved_data = llsd.parse(autobuild_xml)
@@ -256,7 +230,7 @@ class ConfigurationDescription(common.Serialized):
             self.__init_from_dict(saved_data)
             logger.debug("Configuration file '%s'" % self.path)
             if orig_ver:
-                logger.warn("Saving configuration file %s in format %s" %
+                logger.warning("Saving configuration file %s in format %s" %
                             (self.path, AUTOBUILD_CONFIG_VERSION))
                 self.save()
                 # We don't want orig_ver to appear in the saved file: that's
@@ -265,7 +239,7 @@ class ConfigurationDescription(common.Serialized):
                 # read.
                 self["orig_ver"] = orig_ver
         elif not os.path.exists(self.path):
-            logger.warn("Configuration file '%s' not found" % self.path)
+            logger.warning("Configuration file '%s' not found" % self.path)
         else:
             raise ConfigurationError("cannot create configuration file %s" % self.path)
 
@@ -538,8 +512,12 @@ class PackageDescription(common.Serialized):
         self.copyright = None
         self.version = None
         self.version_file = None
+        self.use_scm_version = False
         self.name = None
         self.install_dir = None
+        self.vcs_branch = None
+        self.vcs_revision = None
+        self.vcs_url = None
         if isinstance(arg, dict):
             self.__init_from_dict(dict(arg))
         else:
@@ -569,6 +547,12 @@ class PackageDescription(common.Serialized):
             logger.info("get_platform No %s configuration found; inheriting common" % (platform))
         return target_platform
 
+    def read_scm_version(self, build_directory):
+        version = get_git_version(build_directory)
+        if version is None:
+            raise LookupError("Unable to find version information in SCM (git)")
+        return version
+
     def read_version_file(self, build_directory):
         """
         Validate that this PackageDescription from AUTOBUILD_CONFIG_FILE has a
@@ -585,7 +569,7 @@ class PackageDescription(common.Serialized):
         if not self.version_file:
             # should never hit this because caller should have already called
             # check_package_attributes(), but suspenders and belt
-            raise common.AutobuildError("Missing version_file key")
+            raise NoVersionFileKeyError("Missing version_file key")
 
         version_file = os.path.join(build_directory, self.version_file)
         try:
@@ -737,11 +721,16 @@ def compact_to_dict(description):
     return _compact_to_dict(description)
 
 
-def pretty_print(description, stream=sys.stdout):
+def pretty_print(description, stream=sys.stdout, format='pprint'):
     """
     Pretty prints a compact version of any description to a stream.
     """
-    pprint.pprint(compact_to_dict(description), stream, 1, 80)
+    if format == 'pprint':
+        pprint.pprint(compact_to_dict(description), stream, 1, 80)
+    elif format == 'json':
+        json.dump(compact_to_dict(description), stream, indent=4)
+    else:
+        raise ValueError(f'Unrecognized format {format}. Expected "json" or "pprint"')
 
 
 def pretty_print_string(description):

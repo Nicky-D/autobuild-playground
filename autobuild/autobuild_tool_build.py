@@ -1,43 +1,18 @@
-#!/usr/bin/python
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-
 """
 Builds the source for a package.
 """
 
+import copy
+import logging
 import os
 import re
-import logging
-import copy
 
-# autobuild modules:
-from . import common
-from . import autobuild_base
-from . import configfile
-from .common import AutobuildError
-from .autobuild_tool_configure import _configure_a_configuration
-from .autobuild_tool_source_environment import get_enriched_environment
-
+import autobuild.scm.git
+from autobuild import autobuild_base, common, configfile
+from autobuild.autobuild_tool_configure import _configure_a_configuration
+from autobuild.autobuild_tool_source_environment import get_enriched_environment
+from autobuild.build_id import establish_build_id
+from autobuild.common import AutobuildError, is_env_enabled
 
 logger = logging.getLogger('autobuild.build')
 
@@ -50,7 +25,7 @@ os.environ["PATH"] = common.dedup_path(
 
 class BuildError(AutobuildError):
     pass
-    
+
 boolopt=re.compile("true$",re.I)
 
 class AutobuildTool(autobuild_base.AutobuildBase):
@@ -75,7 +50,7 @@ class AutobuildTool(autobuild_base.AutobuildBase):
                             help="an option to pass to the build command")
         parser.add_argument('--all', '-a', dest='all', default=False, action="store_true",
                             help="build all configurations")
-        parser.add_argument('--configuration', '-c', nargs='?', action="append", dest='configurations', 
+        parser.add_argument('--configuration', '-c', nargs='?', action="append", dest='configurations',
                             help="build a specific build configuration\n(may be specified as comma separated values in $AUTOBUILD_CONFIGURATION)",
                             metavar='CONFIGURATION',
                             default=self.configurations_from_environment())
@@ -95,47 +70,17 @@ class AutobuildTool(autobuild_base.AutobuildBase):
         parser.add_argument('--installed-manifest',
                             default=configfile.INSTALLED_CONFIG_FILE,
                             dest='installed_filename',
-                            help='The file used to record what is installed.') 
+                            help='The file used to record what is installed.')
 
     def run(self, args):
         platform = common.get_current_platform()
-        build_id = common.establish_build_id(args.build_id)  # sets id (even if not specified),
-                                                             # and stores in the AUTOBUILD_BUILD_ID environment variable
         config = configfile.ConfigurationDescription(args.config_file)
-        package_errors = \
-            configfile.check_package_attributes(config,
-                                                additional_requirements=['version_file'])
+        build_id = establish_build_id(args.build_id, config)
+        package_errors = configfile.check_package_attributes(config)
+
         if package_errors:
-            # Now that we've deprecated hard-coded version and started
-            # requiring version_file instead, provide an explanation when it's
-            # missing, instead of confounding a longtime autobuild user with
-            # failure to meet a brand-new requirement.
-            # Recall that package_errors isa str that also has an attrs
-            # attribute. Only emit the verbose message if version_file is
-            # actually one of the problematic attributes, and the config file
-            # had to be converted from an earlier file format, and the
-            # original file format version predates version_file.
-            # (missing orig_ver attribute means a current autobuild.xml, which
-            # is why we pass get() a default value that bypasses verbose)
-            # (version_file was introduced at AUTOBUILD_CONFIG_VERSION 1.3)
-            if "version_file" in package_errors.attrs \
-            and common.get_version_tuple(config.get("orig_ver", "1.3")) < (1, 3):
-                verbose = """
-New requirement: instead of stating a particular version number in the %(xml)s
-file, we now require you to configure a version_file attribute. This should be
-the path (relative to the build_directory) of a small text file containing
-only the package version string. Freezing the version number into %(xml)s
-means we often forget to update it there. Reading the version number from a
-separate text file allows your build script to create that file from data
-available in the package. version_file need not be in the manifest; it's used
-only by 'autobuild build' to create package metadata.
-""" % dict(xml=configfile.AUTOBUILD_CONFIG_FILE)
-            else:
-                verbose = ""
-            # Now, regardless of the value of 'verbose', show the message.
             raise BuildError(''.join((package_errors,
-                                      "\n    in configuration ", args.config_file,
-                                      verbose)))
+                                      "\n    in configuration ", args.config_file)))
         current_directory = os.getcwd()
         if args.clean_only:
             logger.info("building with --clean-only required")
@@ -196,9 +141,20 @@ only by 'autobuild build' to create package metadata.
                     configfile.PackageDescription(bconfig.package_description)
                 # A metadata package_description has a version attribute
                 # instead of a version_file attribute.
-                metadata_file.package_description.version = \
-                    metadata_file.package_description.read_version_file(build_directory)
-                del metadata_file.package_description["version_file"]
+                if config.package_description.use_scm_version:
+                    try:
+                        metadata_file.package_description.version = \
+                            metadata_file.package_description.read_scm_version(build_directory)
+                    except LookupError:
+                        raise BuildError(
+                            'use_scm_version specified in autobuild.xml but no version found in source control (git).'
+                        )
+                else:
+                    if 'version_file' not in metadata_file.package_description:
+                        raise BuildError('No version_file specified in autobuild.xml.')
+                    metadata_file.package_description.version = \
+                        metadata_file.package_description.read_version_file(build_directory)
+                    del metadata_file.package_description["version_file"]
                 logger.info("built %s version %s" %
                             (metadata_file.package_description.name,
                              metadata_file.package_description.version))
@@ -206,6 +162,16 @@ only by 'autobuild build' to create package metadata.
                 metadata_file.platform = platform
                 metadata_file.configuration = build_configuration.name
                 metadata_file.build_id = build_id
+
+                if common.is_env_enabled('AUTOBUILD_VCS_INFO'):
+                    git = autobuild.scm.git.new_client(build_directory)
+                    if git:
+                        metadata_file.package_description.vcs_branch = os.environ.get("AUTOBUILD_VCS_BRANCH", git.branch)
+                        metadata_file.package_description.vcs_revision = os.environ.get("AUTOBUILD_VCS_REVISION", git.revision)
+                        metadata_file.package_description.vcs_url = os.environ.get("AUTOBUILD_VCS_URL", git.url)
+                    else:
+                        logger.warning("Unable to initialize git. Repository not found or git CLI not available")
+
                 # get the record of any installed packages
                 logger.debug("installed files in " + args.installed_filename)
 

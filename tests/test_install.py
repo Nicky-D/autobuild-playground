@@ -1,50 +1,18 @@
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-#
-# Integration test to exercise archive installation
-#
-
-
-
-import os
-import sys
-import errno
-import shutil
-import socket
 import logging
-import tarfile
-import tempfile
-import unittest
-import urllib.request, urllib.parse, urllib.error
-import urllib.parse
+import os
 import posixpath
-import subprocess
-from .basetest import *
-from nose.tools import *                # assert_equals etc.
+import shutil
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from string import Template
 from threading import Thread
-from http.server import HTTPServer
-from http.server import SimpleHTTPRequestHandler
-from autobuild import autobuild_tool_install, autobuild_tool_uninstall, configfile, common
+from unittest import TestCase
+
+from autobuild import autobuild_tool_install, autobuild_tool_uninstall, common
+from tests.basetest import *
 
 # ****************************************************************************
 #   TODO
@@ -114,7 +82,7 @@ def query_manifest(options=None):
 # ****************************************************************************
 #   module setup() and teardown()
 # ****************************************************************************
-def setup():
+def setup_module(module):
     """
     Module-level setup
     """
@@ -144,7 +112,7 @@ def setup():
     # Start server thread. Make it a daemon thread: we'll let it run
     # "forever," confident that the whole process will terminate when the main
     # thread (unittest) terminates.
-    thread.setDaemon(True)
+    thread.daemon = True
     thread.start()
 
     # define FakeOptions class here (but in global namespace) because it
@@ -204,7 +172,7 @@ def setup():
 
     # -----------------------------------  -----------------------------------
 
-def teardown():
+def teardown_module(module):
     """
     Module-level teardown
     """
@@ -253,7 +221,7 @@ class DownloadServer(SimpleHTTPRequestHandler):
         # For present purposes, we don't want the request splattered onto
         # stderr, as it would upset devs watching the test run
         pass
-  
+
     def log_error(self, format, *args):
         # Suppress error output as well
         pass
@@ -261,14 +229,12 @@ class DownloadServer(SimpleHTTPRequestHandler):
 # ****************************************************************************
 #   tests
 # ****************************************************************************
-class BaseTest(object):
+class BaseTest(TestCase):
     default_config="packages-install.xml"
 
-    def __init__(self):
+    def setup_method(self, module):
         self.tempfiles = []
         self.tempdirs = []
-
-    def setup(self):
         # construct default options
         self.options = FakeOptions(install_filename=self.localizedConfig(self.default_config))
         # do not use the normal system cache so that unit tests can't leave anything
@@ -296,7 +262,7 @@ class BaseTest(object):
         template_file.close()
         content=template.substitute(changes)
         tmp_dest.write(content)
-        
+
     def localizedConfig(self, template):
         temp_config_basename=os.path.splitext(os.path.basename(template))[0]
         temp_config_fd, config_filename=tempfile.mkstemp(prefix=os.path.join(mydir, "data", temp_config_basename+"-"),suffix="-local.xml")
@@ -321,7 +287,7 @@ class BaseTest(object):
         # modifications to that PackageDescription metadata don't affect,
         self.config.installables[package.name] = package.copy()
 
-    def teardown(self):
+    def teardown_method(self, method):
         # Actually, for the same reason, undo any successful install. To test
         # reinstalling, or installing several packages, explicitly perform the
         # desired sequence within a single test method.
@@ -336,8 +302,8 @@ class BaseTest(object):
 
 # -------------------------------------  -------------------------------------
 class TestInstallArchive(BaseTest):
-    def setup(self):
-        BaseTest.setup(self)
+    def setup_method(self, method):
+        super(TestInstallArchive, self).setup_method(method)
         self.pkg = "bogus"
         self.options.package = [self.pkg]
 
@@ -350,7 +316,7 @@ class TestInstallArchive(BaseTest):
         with CaptureStdout() as stream:
             self.options.list_dirty=True
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(stream.getvalue(), 'Dirty Packages: \n')
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: \n')
 
     def test_dry_run(self):
         dry_opts = self.options.copy()
@@ -368,9 +334,9 @@ class TestInstallArchive(BaseTest):
         # Absence of that exception means AutobuildTool().run() didn't even try
         # to fetch the tarball -- which should mean it realized this package
         # is already up-to-date.
-        # An earlier version of this test had both cleaned the cache and removed the 
+        # An earlier version of this test had both cleaned the cache and removed the
         # tarball from the server, expecting that the mere presence of the installed
-        # archive would be sufficient to keep it from being installed again; we 
+        # archive would be sufficient to keep it from being installed again; we
         # now require that the file be validated against at least a cached file.
         logger.debug("attempt reinstall with cached file")
         autobuild_tool_install.AutobuildTool().run(self.options)
@@ -386,7 +352,7 @@ class TestInstallArchive(BaseTest):
         # Get ready to update with newer version of same package name
         self.server_tarball = self.copyto(os.path.join(mydir, "data", "bogus-0.2-common-222.tar.bz2"), SERVER_DIR)
         self.options=FakeOptions(install_filename=self.localizedConfig("package-update-install.xml"))
-        self.options.package=["bogus"]                                 
+        self.options.package=["bogus"]
         autobuild_tool_install.AutobuildTool().run(self.options)
         # verify that the update actually updated a file still in package
         assert_in("0.2", open(os.path.join(INSTALL_DIR, "include", "bogus.h")).read())
@@ -452,7 +418,7 @@ class TestInstallArchive(BaseTest):
         with CaptureStdout() as stream:
             self.options.list_dirty=True
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(stream.getvalue(), 'Dirty Packages: nometa\n')
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: nometa\n')
 
     def test_conflicting_file(self):
         # fail because the package contains a file installed by another package
@@ -513,7 +479,7 @@ class TestInstallArchive(BaseTest):
         self.options.list_archives = True
         with CaptureStdout() as stream:
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(set_from_stream(stream), set(('argparse', 'bogus')))
+        self.assertEqual(set_from_stream(stream), set(('argparse', 'bogus')))
 
     def test_list_licenses(self):
         self.options.package = None # install all
@@ -522,7 +488,7 @@ class TestInstallArchive(BaseTest):
         self.options.list_licenses = True
         with CaptureStdout() as stream:
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(set_from_stream(stream), set(("GPL", "Apache 2.0", "tut")))
+        self.assertEqual(set_from_stream(stream), set(("GPL", "Apache 2.0", "tut")))
 
     def test_copyrights(self):
         self.options.package = None # install all
@@ -531,7 +497,7 @@ class TestInstallArchive(BaseTest):
         self.options.copyrights = True
         with CaptureStdout() as stream:
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(stream.getvalue(), "Copyright 2014 Linden Research, Inc.\nbogus: The Owner\n")
+        self.assertEqual(stream.getvalue(), "Copyright 2014 Linden Research, Inc.\nbogus: The Owner\n")
 
     def test_versions(self):
         self.options.platform=None
@@ -541,12 +507,12 @@ class TestInstallArchive(BaseTest):
         self.options.versions = True
         with CaptureStdout() as stream:
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(stream.getvalue(), "bogus: 1\n")
+        self.assertEqual(stream.getvalue(), "bogus: 1\n")
 
 # -------------------------------------  -------------------------------------
 class TestInstallCachedArchive(BaseTest):
-    def setup(self):
-        BaseTest.setup(self)
+    def setup_method(self, method):
+        super(TestInstallCachedArchive, self).setup_method(method)
         self.pkg = "bogus"
         # make sure that the archive is not in the server
         clean_file(os.path.join(SERVER_DIR, "bogus-0.1-common-111.tar.bz2"))
@@ -564,12 +530,12 @@ class TestInstallCachedArchive(BaseTest):
         with CaptureStdout() as stream:
             self.options.list_dirty=True
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(stream.getvalue(), 'Dirty Packages: \n')
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: \n')
 
 # -------------------------------------  -------------------------------------
 class TestInstallLocalArchive(BaseTest):
-    def setup(self):
-        BaseTest.setup(self)
+    def setup_method(self, method):
+        super(TestInstallLocalArchive, self).setup_method(method)
         self.pkg = "bogus"
         target_archive="bogus-0.1-common-111.tar.bz2"
         # Make sure the archive isn't in either the server directory or cache:
@@ -589,8 +555,8 @@ class TestInstallLocalArchive(BaseTest):
         with CaptureStdout() as stream:
             self.options.list_dirty=True
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(stream.getvalue(), 'Dirty Packages: bogus\n')
-            
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: bogus\n')
+
     def test_only_local(self):
         self.options.local_archives=[os.path.join(mydir, "data", "bogus-0.1-common-111.tar.bz2")]
         self.options.package=[]
@@ -603,12 +569,12 @@ class TestInstallLocalArchive(BaseTest):
         # the usual rules that not specifying packages means install all
         # should not happen
         assert not os.path.exists(os.path.join(self.options.select_dir, "LICENSES", "argparse.txt"))
-            
+
 
 # -------------------------------------  -------------------------------------
 class TestDownloadFail(BaseTest):
-    def setup(self):
-        BaseTest.setup(self)
+    def setup_method(self, method):
+        super(TestDownloadFail, self).setup_method(method)
         self.pkg = "notthere"
         clean_file(os.path.join(SERVER_DIR, "bogus-0.1-common-111.tar.bz2"))
         self.cache_name = in_dir(common.get_install_cache_dir(), "bogus-0.1-common-111.tar.bz2")
@@ -621,8 +587,8 @@ class TestDownloadFail(BaseTest):
 
 # -------------------------------------  -------------------------------------
 class TestGarbledDownload(BaseTest):
-    def setup(self):
-        BaseTest.setup(self)
+    def setup_method(self, method):
+        super(TestGarbledDownload, self).setup_method(method)
         self.cache_name = in_dir(common.get_install_cache_dir(), "bogus-0.1-common-111.tar.bz2")
         assert not os.path.exists(self.cache_name)
 
@@ -634,8 +600,8 @@ class TestGarbledDownload(BaseTest):
 
 # -------------------------------------  -------------------------------------
 class TestUninstallArchive(BaseTest):
-    def setup(self):
-        BaseTest.setup(self)
+    def setup_method(self, method):
+        super(TestUninstallArchive, self).setup_method(method)
         # Preliminary setup just like TestInstallArchive
         self.pkg = "bogus"
         self.options.package=[self.pkg]
@@ -680,7 +646,4 @@ class TestInstall(BaseTest):
         with CaptureStdout() as stream:
             self.options.list_archives=True
             autobuild_tool_install.AutobuildTool().run(self.options)
-        assert_equals(set_from_stream(stream), set(("argparse", "bogus")))
-
-if __name__ == '__main__':
-    unittest.main()
+        self.assertEqual(set_from_stream(stream), set(("argparse", "bogus")))

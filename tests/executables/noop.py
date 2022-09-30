@@ -1,6 +1,6 @@
 #!/usr/bin/python
-# $LicenseInfo:firstyear=2021&license=mit$
-# Copyright (c) 2021, Linden Research, Inc.
+# $LicenseInfo:firstyear=2010&license=mit$
+# Copyright (c) 2010, Linden Research, Inc.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -21,8 +21,8 @@
 # THE SOFTWARE.
 # $/LicenseInfo$
 
+
 import sys
 
-
 if __name__ == '__main__':
-    print(' '.join(sys.argv[1:]))
+    sys.exit(0)

@@ -1,50 +1,26 @@
-#!/usr/bin/python
-"""\
-@file   basetest.py
-@author Nat Goodspeed
-@date   2012-08-24
-@brief  Define BaseTest, a base class for all individual test classes.
-"""
-# $LicenseInfo:firstyear=2012&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
+from __future__ import annotations
 
-import os
-import sys
 import errno
+import os
 import re
-import subprocess
-import time
 import shutil
+import subprocess
+import sys
+import tempfile
+import time
 import unittest
 from contextlib import contextmanager, redirect_stdout
 from io import BytesIO, StringIO
 from pathlib import Path
-from tempfile import TemporaryDirectory
+
+import pytest
 
 from autobuild import common
+from autobuild.common import cmd, has_cmd
 
 autobuild_dir = Path(__file__).resolve().parent.parent.parent
 
-# Small script used by tests such as test_source_environment's where 
+# Small script used by tests such as test_source_environment's where
 # autobuild needs to be called from an external script.
 AUTOBUILD_BIN_SCRIPT = """#!/usr/bin/env python
 from autobuild import autobuild_main
@@ -59,7 +35,7 @@ def tmp_autobuild_bin():
     Create a temporary directory with an autobuild shim script pointing to the
     autobuild_main in this package. Yields the path to the autobuild script.
     """
-    with TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory() as tmp_dir:
         autobuild_bin = str(Path(tmp_dir) / "autobuild")
 
         # Write AUTOBUILD_BIN_SCRIPT contents into temporary directory
@@ -70,7 +46,7 @@ def tmp_autobuild_bin():
         os.chmod(autobuild_bin, 0o775)
 
         # Insert both the temporary bin directory containing autobuild and local autobuild
-        # python module location into the system path. 
+        # python module location into the system path.
         sys.path.insert(0, autobuild_dir)
         sys.path.insert(0, tmp_dir)
         try:
@@ -84,7 +60,7 @@ def tmp_autobuild_bin():
 class BaseTest(unittest.TestCase):
     def setUp(self):
         self.this_dir = os.path.abspath(os.path.dirname(__file__))
-    
+
     def run(self, result=None):
         with tmp_autobuild_bin() as autobuild_bin:
             self.autobuild_bin = autobuild_bin
@@ -280,3 +256,69 @@ class CaptureStdout(CaptureStd):
 class CaptureStderr(CaptureStd):
     def __init__(self):
         super(CaptureStderr, self).__init__("stderr")
+
+
+@contextmanager
+def chdir(dir: str):
+    owd = os.getcwd()
+    os.chdir(dir)
+    try:
+        yield
+    finally:
+        os.chdir(owd)
+
+
+@contextmanager
+def envvar(key: str, val: str | None):
+    """Temporarily set or unset an environment variable"""
+    old_val = os.environ.get(key)
+    if val is None:
+        if old_val:
+            del os.environ[key]
+    else:
+        os.environ[key] = val
+        print(f"set {key}={val}")
+    yield
+    if old_val is None:
+        if val:
+            del os.environ[key]
+    else:
+        os.environ[key] = old_val
+
+
+@contextmanager
+def git_repo():
+    """
+    Initialize a new git repository in a temporary directory, yield its path, clean after context exit.
+
+    Layout:
+        .
+        ├── dir
+        │   └── file
+        ├── file
+        ├── .gitignore
+        └── stage
+    """
+    owd = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as root:
+            os.chdir(root)
+            with open(os.path.join(root, "file"), "w"):
+                pass
+            os.mkdir(os.path.join(root, "dir"))
+            with open(os.path.join(root, "dir", "file"), "w"):
+                pass
+            os.mkdir(os.path.join(root, "stage"))
+            with open(os.path.join(root, ".gitignore"), "w") as f:
+                f.write("stage")
+            cmd("git", "init")
+            cmd("git", "remote", "add", "origin", "https://example.com/foo.git")
+            cmd("git", "add", "-A")
+            cmd("git", "commit", "-m", "Initial")
+            cmd("git", "tag", "v1.0.0")
+            yield root
+    finally:
+        os.chdir(owd)
+
+
+needs_git = pytest.mark.skipif(not has_cmd("git"), reason="git not present on system")

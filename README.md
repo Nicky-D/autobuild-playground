@@ -14,3 +14,22 @@ Autobuild, but they are similar enough to cause confusion.*
 For more information, see [Autobuild's wiki page][wiki].
 
 [wiki]: https://wiki.secondlife.com/wiki/Autobuild
+
+## Environment variables
+
+| Name | Default | Description |
+|-|-|-|
+| AUTOBUILD_ADDRSIZE | 32 | Target address size |
+| AUTOBUILD_BUILD_ID | - | Build identifier |
+| AUTOBUILD_CONFIGURATION | - | Target build configuration |
+| AUTOBUILD_CONFIG_FILE | autobuild.xml | Autobuild configuration filename |
+| AUTOBUILD_INSTALLABLE_CACHE | - | Location of local download cache |
+| AUTOBUILD_LOGLEVEL | WARNING | Log level |
+| AUTOBUILD_PLATFORM | - | Target platform |
+| AUTOBUILD_SCM_SEARCH | true | Whether to search for .git in parent directories if using SCM version discovery |
+| AUTOBUILD_VARIABLES_FILE | - | .env file to load |
+| AUTOBUILD_VCS_BRANCH | git branch | autobuild-package.xml VCS info: branch name.  |
+| AUTOBUILD_VCS_INFO | false | Whether to include version control information in autobuild-package.xml |
+| AUTOBUILD_VCS_REVISION | git commit | autobuild-package.xml VCS commit reference to include in autobuild-package.xml. Defaults to current git commit sha. |
+| AUTOBUILD_VCS_URL | git remote url | autobuild-package.xml VCS info: repository URL |
+| AUTOBUILD_VSVER | - | Target Visual Studio version to use on windows |

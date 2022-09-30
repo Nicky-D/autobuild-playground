@@ -1,45 +1,17 @@
-#!/usr/bin/python
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-
 """
 Uninstall binary packages.
 
 This autobuild sub-command will read an installed-packages.xml file and
 uninstall the packages specified on the command line from the install
 directory.
-
-Author : Nat Goodspeed
-Date   : 2010-10-19
 """
 
-import os
-import sys
-from . import common
 import logging
-from . import configfile
-from . import autobuild_base
-from .autobuild_tool_install import uninstall
-from .autobuild_tool_source_environment import get_enriched_environment
+import os
+
+from autobuild import autobuild_base, common, configfile
+from autobuild.autobuild_tool_install import uninstall
+from autobuild.autobuild_tool_source_environment import get_enriched_environment
 
 logger = logging.getLogger('autobuild.uninstall')
 
@@ -132,7 +104,7 @@ class AutobuildTool(autobuild_base.AutobuildBase):
                 logger.error("no applicable configurations found.\n"
                              "did you remember to mark a configuration as default?\n"
                              "autobuild cowardly refuses to do nothing!")
-                
+
             for build_configuration in build_configurations:
                 # Get enriched environment based on the current configuration
                 environment = get_enriched_environment(build_configuration.name)
@@ -157,7 +129,3 @@ class AutobuildTool(autobuild_base.AutobuildBase):
         logger.debug("installed filenames: %s" % installed_filenames)
         for installed_filename in installed_filenames:
             uninstall_packages(args, installed_filename, args.package, args.dry_run)
-
-if __name__ == '__main__':
-    sys.exit("Please invoke this script using 'autobuild %s'" %
-             AutobuildTool().get_details()["name"])

@@ -1,26 +1,3 @@
-#!/usr/bin/python
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-
 """
 Creates archives of build output.
 
@@ -43,22 +20,21 @@ following metadata in the autobuild.xml file:
 * license_file (assumes LICENSES/<package-name>.txt otherwise)
 """
 
-import io
-import hashlib
-import os
-import tarfile
 import getpass
 import glob
-import subprocess
-import urllib.request, urllib.error, urllib.parse
-import re
-from zipfile import ZipFile, ZIP_DEFLATED
-
-from . import common
+import hashlib
+import io
 import logging
-from . import configfile
-from . import autobuild_base
-from .common import AutobuildError
+import os
+import re
+import subprocess
+import tarfile
+import urllib.parse
+import urllib.request
+from zipfile import ZIP_DEFLATED, ZipFile
+
+from autobuild import autobuild_base, common, configfile
+from autobuild.common import AutobuildError
 
 logger = logging.getLogger('autobuild.package')
 
@@ -112,7 +88,7 @@ class AutobuildTool(autobuild_base.AutobuildBase):
                             default=False,
                             dest='list_depends',
                             help="return success if the package contains no dependencies that either are local or lack metadata")
-        parser.add_argument('--configuration', '-c', nargs='?', action="append", dest='configurations', 
+        parser.add_argument('--configuration', '-c', nargs='?', action="append", dest='configurations',
                             help="package a specific build configuration\n(may be specified as comma separated values in $AUTOBUILD_CONFIGURATION)",
                             metavar='CONFIGURATION',
                             default=self.configurations_from_environment())
@@ -199,7 +175,7 @@ def package(config, build_directory, platform_name, archive_filename=None, archi
                            "  use 'autobuild install --list-dirty' to see problem packages")
     if not getattr(metadata_file.package_description,'version',None):
         raise PackageError("no version in metadata package_description -- "
-                           "please verify %s version_file and rerun build" %
+                           "please verify %s version_file or git version tag and rerun build" %
                            os.path.basename(config.path))
     if package_description.license_file:
         if package_description.license_file not in files:
@@ -235,6 +211,7 @@ def package(config, build_directory, platform_name, archive_filename=None, archi
             results.write('autobuild_package_name="%s"\n' % package_description.name)
             results.write('autobuild_package_clean="%s"\n' % ("false" if metadata_file.dirty else "true"))
             results.write('autobuild_package_metadata="%s"\n' % metadata_file_path)
+            results.write('autobuild_package_platform="%s"\n' % metadata_file.platform)
         metadata_file.save()
 
     # add the metadata file name to the list of files _after_ putting that list in the metadata
@@ -310,12 +287,12 @@ def _generate_archive_name(package_description, build_id, platform_name, suffix=
         pass
     package_name = package_description.name.replace('-', '_')
     platform_name = platform_name.replace('/', '_').replace('-', '_')
-    name = package_name \
-           + '-' + package_description.version \
-           + '-' + platform_name + distro \
-           + '-' + build_id \
-           + suffix
-    return name
+	platform_name += distro
+	
+    if package_description.version == build_id:
+        return "-".join([package_name, platform_name, build_id]) + suffix
+    else:
+        return "-".join([package_name, package_description.version, platform_name, build_id]) + suffix
 
 
 def _get_file_list(platform_description, build_directory):

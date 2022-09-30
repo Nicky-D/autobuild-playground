@@ -1,41 +1,17 @@
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-
-
-import os
-import sys
 import logging
+import os
 import pprint
 import tempfile
-import unittest
-from nose.tools import *                # assert_equals
-from .baseline_compare import AutobuildBaselineCompare
-from autobuild import autobuild_tool_build as build
-import autobuild.configfile as configfile
+
 import autobuild.common as common
+import autobuild.configfile as configfile
+from autobuild import autobuild_tool_build as build
+from autobuild.autobuild_tool_build import AutobuildTool, BuildError
+from autobuild.common import cmd
 from autobuild.configfile import PACKAGE_METADATA_FILE, MetadataDescription
-from autobuild.autobuild_tool_build import BuildError, AutobuildTool
-from .basetest import BaseTest, clean_dir, exc
-from .executables import envtest, noop, echo
+from tests.baseline_compare import AutobuildBaselineCompare
+from tests.basetest import BaseTest, clean_dir, envvar, exc, needs_git
+from tests.executables import echo, envtest, noop
 
 # ****************************************************************************
 #   TODO
@@ -124,7 +100,7 @@ class TestBuild(LocalBase):
         metadata = self.read_metadata()
         assert not metadata.package_description.version_file, \
                "version_file erroneously propagated into metadata"
-        assert_equals(metadata.package_description.version, "1.0")
+        self.assertEqual(metadata.package_description.version, "1.0")
 
     def test_autobuild_build_all(self):
         self.autobuild('build', '--config-file=' + self.tmp_file, '--id=123456', '-a')
@@ -157,49 +133,17 @@ class TestMissingPackageNameCurrent(LocalBase):
     def test_autobuild_build(self):
         # Make sure the verbose 'new requirement' message is only produced
         # when the missing key is in fact version_file.
-        with exc(BuildError, "name", without="(?i)new requirement"):
+        with exc(BuildError, "name"):
             build('build', '--config-file=' + self.tmp_file, '--id=123456')
 
-class TestMissingPackageNameOld(LocalBase):
+class TestMissingVersion(LocalBase):
     def get_config(self):
-        config = super(TestMissingPackageNameOld, self).get_config()
-        config.package_description.name = ""
-        config.version = "1.2"
-        return config
-
-    def test_autobuild_build(self):
-        # Make sure the verbose 'new requirement' message is only produced
-        # when the missing key is in fact version_file, especially with an
-        # older version config file.
-        with exc(BuildError, "name", without="(?i)new requirement"):
-            build('build', '--config-file=' + self.tmp_file, '--id=123456')
-
-class TestMissingVersionFileCurrent(LocalBase):
-    def get_config(self):
-        config = super(TestMissingVersionFileCurrent, self).get_config()
+        config = super(TestMissingVersion, self).get_config()
         config.package_description.version_file = ""
         return config
 
     def test_autobuild_build(self):
-        # Make sure the verbose 'new requirement' message isn't produced with
-        # a current format config file.
-        with exc(BuildError, "version_file", without="(?i)new requirement"):
-            build('build', '--config-file=' + self.tmp_file, '--id=123456')
-
-class TestMissingVersionFileOld(LocalBase):
-    def get_config(self):
-        config = super(TestMissingVersionFileOld, self).get_config()
-        config.package_description.version_file = ""
-        config.version = "1.2"
-        return config
-
-    def test_autobuild_build(self):
-        # Make sure the verbose 'new requirement' message is produced when the
-        # missing key is version_file with an older version config file. The
-        # (?s) flag allows '.' to match newline, important because 'new
-        # requirement' may be on a different line of the exception message
-        # than the attribute name version_file.
-        with exc(BuildError, "(?is)version_file.*new requirement"):
+        with exc(configfile.NoVersionFileKeyError):
             build('build', '--config-file=' + self.tmp_file, '--id=123456')
 
 class TestAbsentVersionFile(LocalBase):
@@ -225,6 +169,59 @@ class TestEmptyVersionFile(LocalBase):
         with exc(common.AutobuildError, "version_file"):
             build('build', '--config-file=' + self.tmp_file, '--id=123456')
 
+@needs_git
+class TestSCMVersion(LocalBase):
+    def get_config(self):
+        config = super(TestSCMVersion, self).get_config()
+        # Enable SCM version discovery
+        config.package_description.use_scm_version = True
+        # create empty file to check into git
+        with open(os.path.join(self.tmp_build_dir, "empty"), "w"):
+            pass
+        # create a git root and add a version tag
+        cmd("git", "init", cwd=self.tmp_build_dir)
+        cmd("git", "remote", "add", "origin", "https://example.com/foo.git", cwd=self.tmp_build_dir)
+        cmd("git", "add", "empty", cwd=self.tmp_build_dir)
+        cmd("git", "commit", "-m", "initial", cwd=self.tmp_build_dir)
+        cmd("git", "tag", "v5.0.0", cwd=self.tmp_build_dir)
+        return config
+
+    def test_autobuild_build(self):
+        build('build', '--config-file=' + self.tmp_file, '--id=123456')
+        self.assertEqual(self.read_metadata().package_description.version, "5.0.0")
+
+@needs_git
+class TestVCSInfo(LocalBase):
+    def get_config(self):
+        config = super(TestVCSInfo, self).get_config()
+        # create empty file to check into git
+        with open(os.path.join(self.tmp_build_dir, "empty"), "w"):
+            pass
+        # create a git root and add a version tag
+        cmd("git", "init", cwd=self.tmp_build_dir)
+        cmd("git", "checkout", "-b", "main", cwd=self.tmp_build_dir)
+        cmd("git", "remote", "add", "origin", "https://example.com/foo.git", cwd=self.tmp_build_dir)
+        cmd("git", "add", "empty", cwd=self.tmp_build_dir)
+        cmd("git", "commit", "-m", "initial", cwd=self.tmp_build_dir)
+        return config
+
+    def test_opt_in(self):
+        with envvar("AUTOBUILD_VCS_INFO", "true"):
+            build('build', '--config-file=' + self.tmp_file, '--id=123456')
+            pkg = self.read_metadata()
+            self.assertEqual(pkg.package_description.vcs_branch, "main")
+            self.assertEqual(pkg.package_description.vcs_url, "https://example.com/foo.git")
+            self.assertTrue(len(pkg.package_description.vcs_revision) > 7)
+
+    def test_no_info(self):
+        with envvar("AUTOBUILD_VCS_INFO", None):
+            build('build', '--config-file=' + self.tmp_file, '--id=123456')
+            pkg = self.read_metadata()
+            self.assertIsNone(pkg.package_description.vcs_branch)
+            self.assertIsNone(pkg.package_description.vcs_url)
+            self.assertIsNone(pkg.package_description.vcs_revision)
+
+
 class TestVersionFileOddWhitespace(LocalBase):
     def get_config(self):
         config = super(TestVersionFileOddWhitespace, self).get_config()
@@ -235,7 +232,7 @@ class TestVersionFileOddWhitespace(LocalBase):
 
     def test_autobuild_build(self):
         build('build', '--config-file=' + self.tmp_file, '--id=123456')
-        assert_equals(self.read_metadata().package_description.version, "2.3")
+        self.assertEqual(self.read_metadata().package_description.version, "2.3")
 
 class TestSubstitutions(LocalBase):
     def get_config(self):
@@ -256,6 +253,3 @@ class TestSubstitutions(LocalBase):
         self.config.save()
         assert "foo666" in self.autobuild('build', '--config-file=' + self.tmp_file,
                                         '-i', '666')
-        
-if __name__ == '__main__':
-    unittest.main()

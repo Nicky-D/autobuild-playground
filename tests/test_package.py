@@ -1,44 +1,15 @@
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-#
-# Integration test to exercise the archive packaging
-#
-
-import os
-import sys
 import logging
+import os
 import re
 import shutil
 import tarfile
 import tempfile
-import unittest
-from zipfile import ZipFile
 from string import Template
+from zipfile import ZipFile
 
 import autobuild.autobuild_tool_package as package
-from autobuild import configfile
-from autobuild import common
-from .basetest import BaseTest, ExpectError, CaptureStdout, clean_dir, clean_file
-        
+from autobuild import common, configfile
+from tests.basetest import BaseTest, CaptureStdout, ExpectError, clean_dir, clean_file
 
 # ****************************************************************************
 #   TODO
@@ -122,16 +93,17 @@ class TestPackaging(BaseTest):
     def test_results(self):
         logger.setLevel(logging.DEBUG)
         results_output=tempfile.mktemp()
-        package.package(self.config, self.config.get_build_directory(None, 'common'), 
+        package.package(self.config, self.config.get_build_directory(None, 'common'),
                         'common', archive_format='tbz2', results_file=results_output)
         expected_results_regex='''\
 autobuild_package_name="%s"
 autobuild_package_clean="true"
 autobuild_package_metadata="%s"
+autobuild_package_platform="%s"
 autobuild_package_filename="%s"
 autobuild_package_md5="%s"
 $''' % ('test1', re.escape(os.path.join(self.data_dir, "package-test", "autobuild-package.xml")),
-        re.escape(self.tar_name), "[0-9a-f]{32}")
+        "common", re.escape(self.tar_name), "[0-9a-f]{32}")
         expected=re.compile(expected_results_regex, flags=re.MULTILINE)
         assert os.path.exists(results_output), "results file not found: %s" % results_output
         actual_results = open(results_output,'r').read()
@@ -221,10 +193,6 @@ $''' % ('test1', re.escape(os.path.join(self.data_dir, "package-test", "autobuil
                                 ,platform_config
                                 ,{'PLATFORM':self.platform})
         self.options.autobuild_filename = platform_config
-        with ExpectError("No files matched manifest specifiers:\n"+'\n'.join(["missing/\*.txt","not_there.txt"]),
+        with ExpectError("No files matched manifest specifiers:\n"+'\n'.join(["missing/\\*.txt","not_there.txt"]),
                          "Missing files not detected"):
             package.AutobuildTool().run(self.options)
-
-
-if __name__ == '__main__':
-    unittest.main()

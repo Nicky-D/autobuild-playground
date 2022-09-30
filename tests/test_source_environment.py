@@ -1,26 +1,3 @@
-# $LicenseInfo:firstyear=2010&license=mit$
-# Copyright (c) 2010, Linden Research, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-# $/LicenseInfo$
-
-from ast import literal_eval
 import logging
 import os
 import shutil
@@ -28,11 +5,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from autobuild import autobuild_tool_source_environment as atse
-from .basetest import *
-from nose.tools import *
-from .patch import patch
+from ast import literal_eval
 from pprint import pformat
+
+from autobuild import autobuild_tool_source_environment as atse
+from tests.basetest import *
+from tests.patch import patch
+
 
 def assert_dict_has(d, key, value):
     try:
@@ -40,7 +19,7 @@ def assert_dict_has(d, key, value):
     except KeyError:
         raise AssertionError("key %s not in %s" % (key, pformat(d)))
     else:
-        assert_equals(dval, value)
+        self.assertEqual(dval, value)
 
 def assert_dict_subset(d, s):
     # Windows insists on capitalizing environment variables, so prepare a copy
@@ -217,14 +196,14 @@ pprint.pprint(dict(os.environ))'""" % self.shell_path(sys.executable)))
         assert 'environment_template' in dir(atse)
 
     def test_remove_switch(self):
-        assert_equals(self.source_env_and([], """\
+        self.assertEqual(self.source_env_and([], """\
 switches='abc def ghi'
 remove_switch def $switches"""), "abc ghi")
 
     def test_replace_switch(self):
         # replace_switch makes no guarantees about the order in which the
         # switches are returned.
-        assert_equals(set(self.source_env_and([], """\
+        self.assertEqual(set(self.source_env_and([], """\
 switches='abc def ghi'
 replace_switch def xyz $switches""").split()),
                       set(["abc", "xyz", "ghi"]))
@@ -245,13 +224,13 @@ replace_switch def xyz $switches""").split()),
         stdout, stderr = self.autobuild_outputs(self.find_data("empty"))
         # This also verifies that source_environment doesn't produce errors
         # when handed an empty script file.
-        assert_equals(stderr, "")
+        self.assertEqual(stderr, "")
 
     def test_var_no_warning(self):
         os.environ["AUTOBUILD_VARIABLES_FILE"] = self.find_data("empty")
         # autobuild source_environment with no arg but AUTOBUILD_VARIABLES_FILE
         stdout, stderr = self.autobuild_outputs()
-        assert_equals(stderr, "")
+        self.assertEqual(stderr, "")
 
     def test_no_MAKEFLAGS(self):
         assert_not_in("MAKEFLAGS", self.autobuild_outputs()[0])

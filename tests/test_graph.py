@@ -1,54 +1,24 @@
-#!/usr/bin/python
-"""\
-@file   test_graph.py
-@author Scott Lawrence
-@date   2014-11-23
-@brief  Test the dependency graph generation.
-
-$LicenseInfo:firstyear=2014&license=mit$
-Copyright (c) 2014, Linden Research, Inc.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-$/LicenseInfo$
-"""
-
-import os
 import logging
+import os
 import tempfile
 
+import pytest
+
 try:
-    # in case graphviz not installed
-    from pydot import InvocationException
-except ImportError:
-    # in case pydot not installed!
-    InvocationException = None
+    import pydot
+    with tempfile.TemporaryDirectory() as d:
+        g = pydot.graph_from_dot_data('graph g {}')[0]
+        g.write_png(os.path.join(d, "graph.png"))
+        pydot_available = True
+except (ImportError, FileNotFoundError):
+    pydot_available = False
 
-from unittest import TestCase
-from nose.tools import *                # assert_equals() et al.
-from nose.plugins.skip import SkipTest
-
-#from autobuild.autobuild_main import Autobuild
-import autobuild.common as common
 import autobuild.autobuild_tool_graph as graph
-from .basetest import *
+import autobuild.common as common
+from tests.basetest import *
 
-logger = logging.getLogger("test_graph")
+logger = logging.getLogger(__name__)
+
 
 class GraphOptions(object):
     def __init__(self):
@@ -60,11 +30,13 @@ class GraphOptions(object):
         self.platform=None
         self.addrsize=common.DEFAULT_ADDRSIZE
 
+
+@pytest.mark.skipif(not pydot_available, reason="pydot not available")
 class TestGraph(BaseTest):
     def setUp(self):
         BaseTest.setUp(self)
         self.options=GraphOptions()
-        
+
     def test_nometa(self):
         with ExpectError("No metadata found", "no error detected when archive does not have metadata"):
             self.options.source_file = os.path.join(self.this_dir, "data", "nometa-0.1-common-111.tar.bz2")
@@ -96,20 +68,12 @@ class TestGraph(BaseTest):
         assert_in("bingo -> bongo;", output_lines)
 
     def test_output(self):
-        if InvocationException is None:
-            # If we don't even have pydot installed, this test is pretty
-            # pointless.
-            raise SkipTest("pydot not installed, skipping")
         self.tmp_dir = tempfile.mkdtemp()
         try:
             self.options.graph_file = os.path.join(self.tmp_dir, "graph.png")
             self.options.dot_file = os.path.join(self.tmp_dir, "graph.dot")
             self.options.source_file = os.path.join(self.this_dir, "data", "bongo-0.1-common-111.tar.bz2")
-            try:
-                graph.AutobuildTool().run(self.options)
-            except (FileNotFoundError, InvocationException) as err:
-                # don't require that graphviz be installed to pass unit tests
-                raise SkipTest(str(err))
+            graph.AutobuildTool().run(self.options)
             # for now, settle for detecting that the png file was created
             assert os.path.exists(self.options.graph_file)
             assert os.path.exists(self.options.dot_file)
@@ -121,5 +85,20 @@ class TestGraph(BaseTest):
         BaseTest.tearDown(self)
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestMermaidGraph(BaseTest):
+    def setUp(self):
+        BaseTest.setUp(self)
+        self.options=GraphOptions()
+        self.options.graph_type = 'mermaid'
+
+    def test_output(self):
+        with CaptureStdout() as out: 
+            self.options.source_file = os.path.join(self.this_dir, "data", "bongo-0.1-common-111.tar.bz2")
+            graph.AutobuildTool().run(self.options)
+        graph_txt = out.getvalue()
+        self.assertIn('graph TB', graph_txt)
+        self.assertIn('bongo<br />1<br />111', graph_txt)
+        self.assertIn('bingo<br />0.2<br />222', graph_txt)
+
+    def tearDown(self):
+        BaseTest.tearDown(self)
