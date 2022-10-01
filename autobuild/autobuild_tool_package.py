@@ -287,8 +287,8 @@ def _generate_archive_name(package_description, build_id, platform_name, suffix=
         pass
     package_name = package_description.name.replace('-', '_')
     platform_name = platform_name.replace('/', '_').replace('-', '_')
-	platform_name += distro
-	
+    platform_name += distro
+  
     if package_description.version == build_id:
         return "-".join([package_name, platform_name, build_id]) + suffix
     else:
