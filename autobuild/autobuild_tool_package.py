@@ -289,7 +289,7 @@ def _generate_archive_name(package_description, build_id, platform_name, suffix=
     try:
         from platform import libc_ver
         libcVer = libc_ver()[0] + "-" + libc_ver()[1]
-        distro = "_" + libcVer
+        distro += "_" + libcVer
     except:
         pass
     package_name = package_description.name.replace('-', '_')
