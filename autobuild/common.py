@@ -4,26 +4,27 @@ Low-level autobuild functionality common to all modules.
 Any code that is potentially common to all autobuild sub-commands
 should live in this module. This module should never depend on any
 other autobuild module.
-
-Importing this module will also guarantee that certain dependencies
-are available, such as llbase
 """
 from __future__ import annotations
 
+import hashlib
 import itertools
 import logging
+import multiprocessing
 import os
 import platform
 import pprint
 import subprocess
 import sys
+import tarfile
 import tempfile
 from collections import OrderedDict
+from functools import partial
+from typing import Callable
 
 from autobuild.version import AUTOBUILD_VERSION_STRING
 
 logger = logging.getLogger(__name__)
-
 
 class AutobuildError(RuntimeError):
     pass
@@ -171,6 +172,7 @@ def establish_platform(specified_platform=None, addrsize=DEFAULT_ADDRSIZE):
     os.environ['AUTOBUILD_ADDRSIZE'] = str(addrsize) # for spawned commands
     os.environ['AUTOBUILD_PLATFORM'] = Platform # for spawned commands
     os.environ['AUTOBUILD_PLATFORM_OVERRIDE'] = Platform # for recursive invocations
+    os.environ['AUTOBUILD_CPU_COUNT'] = os.environ.get('AUTOBUILD_CPU_COUNT', str(multiprocessing.cpu_count()))
 
     logger.debug("Specified platform %s address-size %d: result %s" \
                  % (specified_platform, specified_addrsize, Platform))
@@ -327,23 +329,26 @@ def dedup_path(path, sep=os.pathsep):
     return sep.join(OrderedDict((dir.rstrip(r'\/'), 1) for dir in path.split(sep)))
 
 
-def compute_md5(path):
+def compute_hash(path: str, hash: Callable[[], hashlib._Hash]):
     """
-    Returns the MD5 sum for the given file.
+    Compute a hash for a file effeciently by streaming it into the hash algorithm
     """
-    from hashlib import md5
-
+    h = hash()
+    b = bytearray(128*1024)
+    mv = memoryview(b)
     try:
-        stream = open(path, 'rb')
+        with open(path, 'rb') as f:
+            while n := f.readinto(mv):
+                h.update(mv[:n])
+            return h.hexdigest()
     except IOError as err:
-        raise AutobuildError("Can't compute MD5 for %s: %s" % (path, err))
+        raise AutobuildError(f"Can't compute {h.name} for {path}: {err}")
 
-    try:
-        hasher = md5(stream.read())
-    finally:
-        stream.close()
 
-    return hasher.hexdigest()
+compute_md5 = partial(compute_hash, hash=hashlib.md5)
+compute_blake2b = partial(compute_hash, hash=hashlib.blake2b)
+compute_sha1 = partial(compute_hash, hash=hashlib.sha1)
+compute_sha256 = partial(compute_hash, hash=hashlib.sha256)
 
 
 def split_tarname(pathname):
@@ -520,10 +525,34 @@ def cmd(*cmd, **kwargs) -> subprocess.CompletedProcess[str]:
     return p
 
 
-def has_cmd(name) -> bool:
+def has_cmd(name, subcmd: str = "help") -> bool:
     """Check whether an executable exists by attempting to run its 'help' subcommand"""
     try:
-        p = cmd(name, "help")
+        p = cmd(name, subcmd)
     except OSError:
         return False
     return not p.returncode
+
+
+class ZstdTarFile(tarfile.TarFile):
+    def __init__(self, name, mode='r', *, level=4, zstd_dict=None, **kwargs):
+        from pyzstd import CParameter, ZstdFile
+        zstdoption = None
+        if mode != 'r' and mode != 'rb':
+           zstdoption = {CParameter.compressionLevel : level,
+                         CParameter.nbWorkers : multiprocessing.cpu_count(),
+                         CParameter.checksumFlag : 1}
+        self.zstd_file = ZstdFile(name, mode,
+                                level_or_option=zstdoption,
+                                zstd_dict=zstd_dict)
+        try:
+            super().__init__(fileobj=self.zstd_file, mode=mode, **kwargs)
+        except:
+            self.zstd_file.close()
+            raise
+
+    def close(self):
+        try:
+            super().close()
+        finally:
+            self.zstd_file.close()

@@ -4,9 +4,11 @@ import tempfile
 
 import pytest
 
+from tests.basetest import temp_dir
+
 try:
     import pydot
-    with tempfile.TemporaryDirectory() as d:
+    with temp_dir() as d:
         g = pydot.graph_from_dot_data('graph g {}')[0]
         g.write_png(os.path.join(d, "graph.png"))
         pydot_available = True
@@ -67,16 +69,46 @@ class TestGraph(BaseTest):
         assert_found_in("bingo \\[", output_lines)
         assert_in("bingo -> bongo;", output_lines)
 
-    def test_output(self):
+    def test_dot_output(self):
         self.tmp_dir = tempfile.mkdtemp()
         try:
-            self.options.graph_file = os.path.join(self.tmp_dir, "graph.png")
             self.options.dot_file = os.path.join(self.tmp_dir, "graph.dot")
             self.options.source_file = os.path.join(self.this_dir, "data", "bongo-0.1-common-111.tar.bz2")
             graph.AutobuildTool().run(self.options)
-            # for now, settle for detecting that the png file was created
-            assert os.path.exists(self.options.graph_file)
             assert os.path.exists(self.options.dot_file)
+
+        finally:
+            clean_dir(self.tmp_dir)
+
+    def test_png_output(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        try:
+            self.options.graph_file = os.path.join(self.tmp_dir, "graph.png")
+            self.options.source_file = os.path.join(self.this_dir, "data", "bongo-0.1-common-111.tar.bz2")
+            graph.AutobuildTool().run(self.options)
+            assert os.path.exists(self.options.graph_file)
+
+        finally:
+            clean_dir(self.tmp_dir)
+
+    def test_jpeg_output(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        try:
+            self.options.graph_file = os.path.join(self.tmp_dir, "graph.jpeg")
+            self.options.source_file = os.path.join(self.this_dir, "data", "bongo-0.1-common-111.tar.bz2")
+            graph.AutobuildTool().run(self.options)
+            assert os.path.exists(self.options.graph_file)
+
+        finally:
+            clean_dir(self.tmp_dir)
+
+    def test_svg_output(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        try:
+            self.options.graph_file = os.path.join(self.tmp_dir, "graph.svg")
+            self.options.source_file = os.path.join(self.this_dir, "data", "bongo-0.1-common-111.tar.bz2")
+            graph.AutobuildTool().run(self.options)
+            assert os.path.exists(self.options.graph_file)
 
         finally:
             clean_dir(self.tmp_dir)
@@ -92,7 +124,7 @@ class TestMermaidGraph(BaseTest):
         self.options.graph_type = 'mermaid'
 
     def test_output(self):
-        with CaptureStdout() as out: 
+        with CaptureStdout() as out:
             self.options.source_file = os.path.join(self.this_dir, "data", "bongo-0.1-common-111.tar.bz2")
             graph.AutobuildTool().run(self.options)
         graph_txt = out.getvalue()

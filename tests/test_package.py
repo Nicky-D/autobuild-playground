@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -50,6 +51,9 @@ class TestPackaging(BaseTest):
         self.platform = 'common'
         self.tar_basename = os.path.join(self.data_dir, "test1-1.0-common-123456")
         self.tar_name = self.tar_basename + ".tar.bz2"
+        self.tar_gz_name = self.tar_basename + ".tar.gz"
+        self.tar_xz_name = self.tar_basename + ".tar.xz"
+        self.tar_zst_name = self.tar_basename + ".tar.zst"
         self.zip_name = self.tar_basename + ".zip"
         self.expected_files=['include/file1','LICENSES/test1.txt','autobuild-package.xml']
         self.expected_files.sort()
@@ -71,7 +75,10 @@ class TestPackaging(BaseTest):
         BaseTest.tearDown(self)
 
     def tar_has_expected(self,tar):
-        tarball = tarfile.open(tar, 'r:bz2')
+        if 'tar.zst' in tar:
+            tarball = common.ZstdTarFile(tar, 'r')
+        else:
+            tarball = tarfile.open(tar, 'r')
         packaged_files=tarball.getnames()
         packaged_files.sort()
         self.assertEqual(packaged_files, self.expected_files)
@@ -102,14 +109,34 @@ autobuild_package_metadata="%s"
 autobuild_package_platform="%s"
 autobuild_package_filename="%s"
 autobuild_package_md5="%s"
+autobuild_package_blake2b="%s"
+autobuild_package_sha1="%s"
+autobuild_package_sha256="%s"
 $''' % ('test1', re.escape(os.path.join(self.data_dir, "package-test", "autobuild-package.xml")),
-        "common", re.escape(self.tar_name), "[0-9a-f]{32}")
+        "common", re.escape(self.tar_name), "[0-9a-f]{32}", "[0-9a-f]{128}", "[0-9a-f]{40}", "[0-9a-f]{64}")
         expected=re.compile(expected_results_regex, flags=re.MULTILINE)
         assert os.path.exists(results_output), "results file not found: %s" % results_output
         actual_results = open(results_output,'r').read()
         assert expected.match(actual_results), \
           "\n!!! expected regex:\n%s\n!!! actual result:\n%s" % (expected_results_regex, actual_results)
         clean_file(results_output)
+
+    def test_results_json(self):
+        logger.setLevel(logging.DEBUG)
+        results_file = tempfile.mktemp() + '.json'
+        package.package(self.config, self.config.get_build_directory(None, 'common'),
+                        'common', archive_format='tbz2', results_file=results_file)
+        with open(results_file) as f:
+            results = json.load(f)
+            self.assertEqual(results["autobuild_package_name"], "test1")
+            self.assertEqual(results["autobuild_package_clean"], "true")
+            self.assertEqual(results["autobuild_package_metadata"], os.path.join(self.data_dir, "package-test", "autobuild-package.xml"))
+            self.assertEqual(results["autobuild_package_platform"], "common")
+            self.assertEqual(results["autobuild_package_filename"], self.tar_name)
+            self.assertEqual(len(results["autobuild_package_md5"]), 32)
+            self.assertEqual(len(results["autobuild_package_blake2b"]), 128)
+            self.assertEqual(len(results["autobuild_package_sha1"]), 40)
+            self.assertEqual(len(results["autobuild_package_sha256"]), 64)
 
     def test_package_other_version(self):
         # read the existing metadata file and update stored package version
@@ -138,6 +165,27 @@ $''' % ('test1', re.escape(os.path.join(self.data_dir, "package-test", "autobuil
         assert os.path.exists(self.tar_name), "%s does not exist" % self.tar_name
         self.tar_has_expected(self.tar_name)
         self.remove(self.tar_name)
+        self.autobuild("package",
+                       "--config-file=" + self.config_path,
+                       "--archive-format=tgz",
+                       "-p", "common")
+        assert os.path.exists(self.tar_gz_name), "%s does not exist" % self.tar_gz_name
+        self.tar_has_expected(self.tar_gz_name)
+        self.remove(self.tar_gz_name)
+        self.autobuild("package",
+                       "--config-file=" + self.config_path,
+                       "--archive-format=txz",
+                       "-p", "common")
+        assert os.path.exists(self.tar_xz_name), "%s does not exist" % self.tar_xz_name
+        self.tar_has_expected(self.tar_xz_name)
+        self.remove(self.tar_xz_name)
+        self.autobuild("package",
+                       "--config-file=" + self.config_path,
+                       "--archive-format=tzst",
+                       "-p", "common")
+        assert os.path.exists(self.tar_zst_name), "%s does not exist" % self.tar_zst_name
+        self.tar_has_expected(self.tar_zst_name)
+        self.remove(self.tar_zst_name)
         self.autobuild("package",
                        "--config-file=" + self.config_path,
                        "--archive-format=zip",

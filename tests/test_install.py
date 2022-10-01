@@ -10,8 +10,10 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from string import Template
 from threading import Thread
 from unittest import TestCase
+from unittest.mock import MagicMock, patch
 
 from autobuild import autobuild_tool_install, autobuild_tool_uninstall, common
+from autobuild.autobuild_tool_install import CredentialsNotFoundError
 from tests.basetest import *
 
 # ****************************************************************************
@@ -510,9 +512,9 @@ class TestInstallArchive(BaseTest):
         self.assertEqual(stream.getvalue(), "bogus: 1\n")
 
 # -------------------------------------  -------------------------------------
-class TestInstallCachedArchive(BaseTest):
+class TestInstallCachedBZ2Archive(BaseTest):
     def setup_method(self, method):
-        super(TestInstallCachedArchive, self).setup_method(method)
+        super(TestInstallCachedBZ2Archive, self).setup_method(method)
         self.pkg = "bogus"
         # make sure that the archive is not in the server
         clean_file(os.path.join(SERVER_DIR, "bogus-0.1-common-111.tar.bz2"))
@@ -521,6 +523,98 @@ class TestInstallCachedArchive(BaseTest):
 
         # Instead copy directly to cache dir.
         self.copyto(os.path.join(mydir, "data", "bogus-0.1-common-111.tar.bz2"), common.get_install_cache_dir())
+
+    def test_success(self):
+        self.options.package = [self.pkg]
+        autobuild_tool_install.AutobuildTool().run(self.options)
+        assert os.path.exists(os.path.join(INSTALL_DIR, "lib", "bogus.lib"))
+        assert os.path.exists(os.path.join(INSTALL_DIR, "include", "bogus.h"))
+        with CaptureStdout() as stream:
+            self.options.list_dirty=True
+            autobuild_tool_install.AutobuildTool().run(self.options)
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: \n')
+
+# -------------------------------------  -------------------------------------
+class TestInstallCachedGZArchive(BaseTest):
+    def setup_method(self, method):
+        super(TestInstallCachedGZArchive, self).setup_method(method)
+        self.pkg = "bogus"
+        # make sure that the archive is not in the server
+        clean_file(os.path.join(SERVER_DIR, "bogus-0.1-common-111.tar.gz"))
+        assert not os.path.exists(in_dir(SERVER_DIR, "bogus-0.1-common-111.tar.gz"))
+        self.cache_name = in_dir(common.get_install_cache_dir(), "bogus-0.1-common-111.tar.gz")
+
+        # Instead copy directly to cache dir.
+        self.copyto(os.path.join(mydir, "data", "bogus-0.1-common-111.tar.gz"), common.get_install_cache_dir())
+
+    def test_success(self):
+        self.options.package = [self.pkg]
+        autobuild_tool_install.AutobuildTool().run(self.options)
+        assert os.path.exists(os.path.join(INSTALL_DIR, "lib", "bogus.lib"))
+        assert os.path.exists(os.path.join(INSTALL_DIR, "include", "bogus.h"))
+        with CaptureStdout() as stream:
+            self.options.list_dirty=True
+            autobuild_tool_install.AutobuildTool().run(self.options)
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: \n')
+
+# -------------------------------------  -------------------------------------
+class TestInstallCachedXZArchive(BaseTest):
+    def setup_method(self, method):
+        super(TestInstallCachedXZArchive, self).setup_method(method)
+        self.pkg = "bogus"
+        # make sure that the archive is not in the server
+        clean_file(os.path.join(SERVER_DIR, "bogus-0.1-common-111.tar.xz"))
+        assert not os.path.exists(in_dir(SERVER_DIR, "bogus-0.1-common-111.tar.xz"))
+        self.cache_name = in_dir(common.get_install_cache_dir(), "bogus-0.1-common-111.tar.xz")
+
+        # Instead copy directly to cache dir.
+        self.copyto(os.path.join(mydir, "data", "bogus-0.1-common-111.tar.xz"), common.get_install_cache_dir())
+
+    def test_success(self):
+        self.options.package = [self.pkg]
+        autobuild_tool_install.AutobuildTool().run(self.options)
+        assert os.path.exists(os.path.join(INSTALL_DIR, "lib", "bogus.lib"))
+        assert os.path.exists(os.path.join(INSTALL_DIR, "include", "bogus.h"))
+        with CaptureStdout() as stream:
+            self.options.list_dirty=True
+            autobuild_tool_install.AutobuildTool().run(self.options)
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: \n')
+
+# -------------------------------------  -------------------------------------
+class TestInstallCachedZSTArchive(BaseTest):
+    def setup_method(self, method):
+        super(TestInstallCachedZSTArchive, self).setup_method(method)
+        self.pkg = "bogus"
+        # make sure that the archive is not in the server
+        clean_file(os.path.join(SERVER_DIR, "bogus-0.1-common-111.tar.zst"))
+        assert not os.path.exists(in_dir(SERVER_DIR, "bogus-0.1-common-111.tar.zst"))
+        self.cache_name = in_dir(common.get_install_cache_dir(), "bogus-0.1-common-111.tar.zst")
+
+        # Instead copy directly to cache dir.
+        self.copyto(os.path.join(mydir, "data", "bogus-0.1-common-111.tar.zst"), common.get_install_cache_dir())
+
+    def test_success(self):
+        self.options.package = [self.pkg]
+        autobuild_tool_install.AutobuildTool().run(self.options)
+        assert os.path.exists(os.path.join(INSTALL_DIR, "lib", "bogus.lib"))
+        assert os.path.exists(os.path.join(INSTALL_DIR, "include", "bogus.h"))
+        with CaptureStdout() as stream:
+            self.options.list_dirty=True
+            autobuild_tool_install.AutobuildTool().run(self.options)
+        self.assertEqual(stream.getvalue(), 'Dirty Packages: \n')
+
+# -------------------------------------  -------------------------------------
+class TestInstallCachedZIPArchive(BaseTest):
+    def setup_method(self, method):
+        super(TestInstallCachedZIPArchive, self).setup_method(method)
+        self.pkg = "bogus"
+        # make sure that the archive is not in the server
+        clean_file(os.path.join(SERVER_DIR, "bogus-0.1-common-111.zip"))
+        assert not os.path.exists(in_dir(SERVER_DIR, "bogus-0.1-common-111.zip"))
+        self.cache_name = in_dir(common.get_install_cache_dir(), "bogus-0.1-common-111.zip")
+
+        # Instead copy directly to cache dir.
+        self.copyto(os.path.join(mydir, "data", "bogus-0.1-common-111.zip"), common.get_install_cache_dir())
 
     def test_success(self):
         self.options.package = [self.pkg]
@@ -647,3 +741,39 @@ class TestInstall(BaseTest):
             self.options.list_archives=True
             autobuild_tool_install.AutobuildTool().run(self.options)
         self.assertEqual(set_from_stream(stream), set(("argparse", "bogus")))
+
+# -------------------------------------  -------------------------------------
+class TestDownloadPackage(unittest.TestCase):
+    @patch("urllib.request.urlopen")
+    def test_download(self, mock_urlopen: MagicMock):
+        mock_urlopen.return_value = None
+        with envvar("AUTOBUILD_GITHUB_TOKEN", None):
+            autobuild_tool_install.download_package("https://example.org/foo.tar.bz2")
+            mock_urlopen.assert_called()
+            got_req = mock_urlopen.mock_calls[0].args[0]
+            self.assertIsNone(got_req.unredirected_hdrs.get("Authorization"))
+
+    @patch("urllib.request.urlopen")
+    def test_download_github(self, mock_urlopen: MagicMock):
+        mock_urlopen.return_value = None
+        with envvar("AUTOBUILD_GITHUB_TOKEN", "token-123"):
+            autobuild_tool_install.download_package("https://example.org/foo.tar.bz2", creds="github")
+            mock_urlopen.assert_called()
+            got_req = mock_urlopen.mock_calls[0].args[0]
+            self.assertEqual(got_req.unredirected_hdrs["Authorization"], "Bearer token-123")
+
+    @patch("urllib.request.urlopen")
+    def test_download_gitlab(self, mock_urlopen: MagicMock):
+        mock_urlopen.return_value = None
+        with envvar("AUTOBUILD_GITLAB_TOKEN", "token-123"):
+            autobuild_tool_install.download_package("https://example.org/foo.tar.bz2", creds="gitlab")
+            mock_urlopen.assert_called()
+            got_req = mock_urlopen.mock_calls[0].args[0]
+            self.assertEqual(got_req.unredirected_hdrs["Authorization"], "Bearer token-123")
+
+    @patch("urllib.request.urlopen")
+    def test_download_github_without_creds(self, mock_urlopen: MagicMock):
+        mock_urlopen.return_value = None
+        with envvar("AUTOBUILD_GITHUB_TOKEN", None):
+            with self.assertRaises(CredentialsNotFoundError):
+                autobuild_tool_install.download_package("https://example.org/foo.tar.bz2", creds="github")

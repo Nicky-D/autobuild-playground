@@ -8,6 +8,7 @@ to specify all the files that have been installed.
 """
 
 import errno
+import http.client
 import logging
 import os
 import pprint
@@ -23,8 +24,19 @@ from autobuild.autobuild_tool_source_environment import get_enriched_environment
 
 logger = logging.getLogger('autobuild.install')
 
+CREDENTIAL_ENVVARS = {
+    'github': 'AUTOBUILD_GITHUB_TOKEN',
+    'gitlab': 'AUTOBUILD_GITLAB_TOKEN',
+}
+
+
 class InstallError(common.AutobuildError):
     pass
+
+
+class CredentialsNotFoundError(common.AutobuildError):
+    pass
+
 
 __help = """\
 This autobuild command fetches and installs package archives.
@@ -179,7 +191,29 @@ def package_cache_path(package):
     """
     return os.path.join(common.get_install_cache_dir(), os.path.basename(package))
 
-def get_package_file(package_name, package_url, hash_algorithm='md5', expected_hash=None):
+
+def download_package(package_url: str, timeout=120, creds=None, package_name="") -> http.client.HTTPResponse:
+    req = urllib.request.Request(package_url)
+
+    if creds:
+        try:
+            token_var = CREDENTIAL_ENVVARS[creds]
+        except KeyError:
+            logger.warning(f"Unrecognized creds={creds} value")
+
+        token = os.environ.get(token_var)
+        if token:
+            req.add_unredirected_header("Authorization", f"Bearer {token}")
+        else:
+            raise CredentialsNotFoundError(
+                f"Package {package_name} is set to use '{creds}' credentials type but no {token_var} "
+                "environment variable is set"
+            )
+
+    return urllib.request.urlopen(req, data=None, timeout=timeout)
+
+
+def get_package_file(package_name, package_url, hash_algorithm='md5', expected_hash=None, creds=None):
     """
     Get the package file in the cache, downloading if needed.
     Validate the cache file using the hash (removing it if needed)
@@ -242,6 +276,9 @@ def get_package_file(package_name, package_url, hash_algorithm='md5', expected_h
                     print( package_url )
                 package_response = None
                 cache_file = None
+            except CredentialsNotFoundError as err:
+                logger.error(err)
+                return None
 
             if package_response is not None:
                 with open(cache_file, 'wb') as cache:
@@ -295,7 +332,7 @@ def _install_package(archive_path, install_dir, exclude=[]):
         logger.error("cannot extract non-existing package: %s" % archive_path)
         return False
     logger.info("extracting from %s" % os.path.basename(archive_path))
-    if tarfile.is_tarfile(archive_path):
+    if tarfile.is_tarfile(archive_path) or ".tar.zst" in archive_path:
         return __extract_tar_file(archive_path, install_dir, exclude=exclude)
     elif zipfile.is_zipfile(archive_path):
         return __extract_zip_archive(archive_path, install_dir, exclude=exclude)
@@ -313,8 +350,11 @@ def extract_metadata_from_package(archive_path, metadata_file_name):
         logger.error("no package found at: %s" % archive_path)
     else:
         logger.debug("extracting metadata from %s" % os.path.basename(archive_path))
-        if tarfile.is_tarfile(archive_path):
-            tar = tarfile.open(archive_path, 'r')
+        if tarfile.is_tarfile(archive_path) or ".tar.zst" in archive_path:
+            if ".tar.zst" in archive_path:
+                tar = common.ZstdTarFile(archive_path, 'r')
+            else:
+                tar = tarfile.open(archive_path, 'r')
             try:
                 metadata_file = tar.extractfile(metadata_file_name)
             except KeyError as err:
@@ -333,7 +373,10 @@ def extract_metadata_from_package(archive_path, metadata_file_name):
 
 def __extract_tar_file(cachename, install_dir, exclude=[]):
     # Attempt to extract the package from the install cache
-    tar = tarfile.open(cachename, 'r')
+    if ".tar.zst" in cachename:
+        tar = common.ZstdTarFile(cachename, 'r')
+    else:
+        tar = tarfile.open(cachename, 'r')
     extract = [member for member in tar.getmembers() if member.name not in exclude]
     conflicts = [member.name for member in extract
                  if os.path.exists(os.path.join(install_dir, member.name))

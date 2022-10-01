@@ -1,9 +1,12 @@
 *~
 autobuild/version.py
 build/
+coverage.xml
 dist/
+.coverage
 .idea
 .venv
+.vscode
 *.pyc
 *.swp
 *.egg-info
